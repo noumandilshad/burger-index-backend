@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DataProcessorController } from './data-processor.scheduler';
 import { DataProcessorService } from './data-processor.service';
-import { S3Service } from 'src/services/s3.service';
 import { ConfigService } from '@nestjs/config';
 import { DataManagementService } from '../data-management/data-management.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -17,7 +16,6 @@ import { ElasticSearchService } from '../data-management/elastic-search.service'
   providers: [
     DataProcessorService,
     DataManagementService,
-    S3Service,
     ConfigService,
     ElasticSearchService,
   ],
