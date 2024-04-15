@@ -30,7 +30,7 @@ export class DataProcessorController {
     // Extract the downloaded S3 data to local folder.
     await this.dataProcessorService.extractZipFiles(`${this.localPath}`);
 
-    // Load downloaded extracted JSON data to MONGO-DB and index data on ELASTIC-SEACH.
+    // Load downloaded extracted JSON data to MY-SQL and ELASTIC-SEARCH and index data on ELASTIC-SEACH.
     await this.dataProcessorService.loadJsonToDb();
   }
 }
