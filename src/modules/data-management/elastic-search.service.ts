@@ -1,9 +1,10 @@
 // src/services/elasticsearch.service.ts
-import { HttpException, Injectable } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { Client } from '@elastic/elasticsearch';
 
 @Injectable()
 export class ElasticSearchService {
+  private readonly logger = new Logger(ElasticSearchService.name);
   private readonly client: Client;
 
   constructor() {
@@ -14,6 +15,15 @@ export class ElasticSearchService {
         password: process.env.ELASTIC_SEARCH_PASSWORD,
       },
     });
+
+    this.client
+      .ping()
+      .then(() => this.logger.log('ElasticSearch connection was successful.'))
+      .catch((error) =>
+        this.logger.error('ElasticSearch connection was not successful', {
+          reason: error.message,
+        }),
+      );
   }
 
   async indexDocument(index: string, body: any): Promise<void> {

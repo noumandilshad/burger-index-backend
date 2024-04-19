@@ -63,7 +63,7 @@ export class DataProcessorService {
       const localFolderPath = path.join(rootFolderPath, path.dirname(key));
       const localFilePath = path.join(rootFolderPath, key);
 
-      await this.ensureDirectoryExists(localFolderPath); // Ensure directory exists
+      await this.ensureDirectoryExists(localFolderPath);
 
       const readSteam = this.s3.getObject(params).createReadStream();
       const writeSteam = fs.createWriteStream(localFilePath);
@@ -84,7 +84,9 @@ export class DataProcessorService {
 
     try {
       const data = await this.s3.listObjectsV2(params).promise();
-      return data.Contents.map((object) => `${object.Key}-${today}`);
+      return data.Contents.filter((object) => {
+        return object.LastModified.toISOString().split('T')[0] === today;
+      });
     } catch (error) {
       console.error('Error listing objects in bucket:', error);
       throw error;
@@ -95,13 +97,11 @@ export class DataProcessorService {
     try {
       const objects = await this.listObjectsInBucket(this.bucketName, today);
 
-      for (const objectKey of objects) {
-        await this.downloadFileFromS3(
-          this.bucketName,
-          objectKey,
-          this.localPath,
-        );
-      }
+      const downloadPromises = Object.values(objects).map(({ Key }) => {
+        return this.downloadFileFromS3(this.bucketName, Key, this.localPath);
+      });
+
+      this.concurrentPromises(downloadPromises, 20);
 
       console.log(
         `All files from bucket "${this.bucketName}" cloned to "${this.localPath}"`,
@@ -116,14 +116,12 @@ export class DataProcessorService {
       const files = await readdirAsync(sourceFolder);
 
       for (const file of files) {
+        if (file !== '__MACOSX') return;
         const filePath = path.join(sourceFolder, file);
         const fileStat = await statAsync(filePath);
 
         if (fileStat.isDirectory()) {
-          if (file !== '__MACOSX') {
-            // Recursively extract files in subdirectories
-            await this.extractZipFiles(filePath, destinationFolder);
-          }
+          await this.extractZipFiles(filePath, destinationFolder);
         } else if (filePath.toLowerCase().endsWith('.zip')) {
           // Extract the zip file
           await this.unzipFile(filePath, destinationFolder);
@@ -169,38 +167,42 @@ export class DataProcessorService {
     console.log({
       function: 'readJSONFiles',
       event: 'function invoked.',
+      params: {
+        param1: directoryPath,
+      },
     });
 
-    fs.readdir(directoryPath, (err, files) => {
-      if (err) {
-        console.error('Error reading directory:', err);
-        return;
+    const files = await fs.readdir(directoryPath);
+
+    const insertPromise = files.map(async (file) => {
+      const filePath = path.join(directoryPath, file);
+
+      const isDir = fs.statSync(filePath).isDirectory();
+
+      if (isDir) {
+        return this.loadJsonToDb(filePath);
+      } else {
+        if (!filePath.includes('.json')) return;
+        const data = await fs.readFile(filePath, 'utf8');
+
+        const jsonData = JSON.parse(data);
+
+        const promises = jsonData.map(async (jsonRecord) =>
+          this.dataManagementService.insertRecord(jsonRecord),
+        );
+
+        return Promise.all(promises);
       }
-      files.forEach((file) => {
-        const filePath = path.join(directoryPath, file);
-        if (fs.statSync(filePath).isDirectory()) {
-          this.loadJsonToDb(filePath);
-        } else {
-          fs.readFile(filePath, 'utf8', async (err, data) => {
-            if (!filePath.includes('.json')) return;
-            if (err) {
-              console.error('Error reading file:', filePath, err);
-              return;
-            }
-            try {
-              const jsonData = JSON.parse(data);
-
-              const promises = jsonData.map(async (jsonRecord) =>
-                this.dataManagementService.insertRecord(jsonRecord),
-              );
-
-              await Promise.all(promises);
-            } catch (error) {
-              console.error('Error parsing JSON:', filePath, error);
-            }
-          });
-        }
-      });
     });
+
+    this.concurrentPromises(insertPromise, 20);
+
+    return;
+  }
+
+  async concurrentPromises(promises, concurrency) {
+    for (let i = 0; i < promises.length; i += concurrency) {
+      await Promise.all(promises.slice(i, i + concurrency));
+    }
   }
 }
